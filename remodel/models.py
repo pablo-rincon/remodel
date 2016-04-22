@@ -4,7 +4,7 @@ from inflection import tableize
 
 from .decorators import callback, classaccessonlyproperty, dispatch_to_metaclass
 from .errors import OperationError
-from .field_handler import FieldHandlerBase, FieldHandler
+from .field_handler import FieldHandlerBase, FieldHandler, Field
 from .object_handler import ObjectHandler
 from .registry import model_registry
 from .utils import deprecation_warning
@@ -44,6 +44,16 @@ class ModelBase(type):
                                                 for key, value in dct.items()
                                                 if hasattr(value, callback)])
 
+        to_create = {}
+        # Get a dictionary in the form of {'fieldname': Field instance ...}
+        for k, v in dct.items():
+            if isinstance(v, Field):
+                # Set Field name in the class into the instance. It'll be 
+                # be used by the fields_handler as the key, like in schemeless
+                v.set_name(k)
+                to_create[k] = v
+        # Expose the defined Model's field list to the Model class
+        dct['_to_create'] = to_create
         new_class = super_new(mcs, name, bases, dct)
         model_registry.register(name, new_class)
         setattr(new_class, 'objects', object_handler_cls(new_class))
@@ -60,9 +70,16 @@ class Model(object):
     def __init__(self, **kwargs):
         self.fields = self._field_handler_cls()
 
+        for key, field in self._to_create.items():
+            # Associate the Field to fields list and set the default values
+            setattr(self.fields, key, getattr(field, 'default'))
+
         for key, value in kwargs.items():
             # Assign fields this way to be sure that validation takes place
-            setattr(self.fields, key, value)
+            if key in self._to_create:
+                self._to_create[key].__set__(self, value)
+            else:
+                setattr(self.fields, key, value)
 
         self._run_callbacks('after_init')
 

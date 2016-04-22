@@ -86,3 +86,71 @@ class FieldHandler(object):
     def as_dict(self):
         return {field: self.__dict__[field] for field in self.__dict__
                 if not field.startswith('_')}
+
+
+class Field(object):
+    ''' Base class for fields
+    It doesn't handle values directly but maps the instance.fields handler
+    by the field name for getting and setting values. Conversions of complex
+    objects would occur during a get or set operation through
+    modelinstance.fieldname calling internally to_native and to_rdb respectively '''
+    def __init__(self, **kwargs):
+        self.name = None
+        if 'default' in kwargs:
+            self.default = kwargs['default']
+        else:
+            self.default = None
+
+    def __get__(self, instance, owner):
+        return getattr(instance.fields, self.to_native(self.name))
+
+    def __set__(self, instance, value):
+        if self.validate(value):
+            instance[self.name] = self.to_rdb(value)
+
+    def __delete__(self, instance, value):
+        delattr(instance, self.name)
+
+    def set_name(self, name):
+        self.name = name
+
+    def validate(self, value):
+        # Just check if we have something
+        if value is None:
+            if self.name:
+                raise ValueError('{0} type is not a valid type'.
+                                 format(self.name))
+            else:
+                raise ValueError('{0} type is not a valid type'.format(self))
+        return True
+
+    def to_native(self, value):
+        # convert to python data type if necessary
+        return value
+
+    def to_rdb(self, value):
+        # convert to rethinkdb compatible data type if necessary
+        return value
+
+
+class NumericField(Field):
+    # We don't need a custom adaptation between a python numeric type (int, float)
+    # and so, we just validate
+    def validate(self, value):
+        if super(NumericField, self).validate(value) and (isinstance(value, int) or isinstance(value, float)):
+            return True
+        else:
+            if self.name != None:
+                raise ValueError('{0} is not a numeric type: {1}'.format(self.name, value))
+            else:
+                raise ValueError('{0} is not a numeric type'.format(value))
+
+
+class StringField(Field):
+    def validate(self, value):
+        if not isinstance(value, str):
+            if self.name != None:
+                raise ValueError('{0} is not a string type: {1}'.format(self.name, value))
+            else:
+                raise ValueError('"{0}" is not a string type'.format(value))
+        return True
